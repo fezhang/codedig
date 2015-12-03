@@ -1,0 +1,1 @@
+cscan.exe test.c -- -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -Itools/clang/include -I$BD/include -Iinclude -Itools/clang/lib/Headers -c

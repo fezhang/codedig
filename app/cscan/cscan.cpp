@@ -2,29 +2,7 @@
 //
 
 #include "stdafx.h"
-
-#include "llvm/Support/CommandLine.h"
-
-#include "clang/Driver/Options.h"
-#include "clang/AST/AST.h"
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/ASTConsumer.h"
-#include "clang/AST/RecursiveASTVisitor.h"
-#include "clang/Frontend/ASTConsumers.h"
-#include "clang/Frontend/FrontendActions.h"
-#include "clang/Frontend/CompilerInstance.h"
-#include "clang/Tooling/CommonOptionsParser.h"
-#include "clang/Tooling/Tooling.h"
-#include "clang/Rewrite/Core/Rewriter.h"
-
-using namespace std;
-using namespace clang;
-using namespace clang::driver;
-using namespace clang::tooling;
-using namespace llvm;
-
-Rewriter rewriter;
-int numFunctions = 0;
+#include "ASTConsumer.h"
 
 // Apply a custom category to all command-line options so that they are the
 // only ones displayed.
@@ -38,98 +16,80 @@ static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
 // A help message for this specific tool can be added afterwards.
 static cl::extrahelp MoreHelp("\nMore help text...");
 
-class ExampleVisitor : public RecursiveASTVisitor<ExampleVisitor> {
-private:
-	ASTContext *astContext; // used for getting additional AST info
+NS_CODE_DIG_AST_BGN
 
+class CCDVistorContext: public NS_CODE_DIG::IVistorListener
+{
 public:
-	explicit ExampleVisitor(CompilerInstance *CI)
-		: astContext(&(CI->getASTContext())) // initialize private members
+	void SetCurrSrcFile(const std::string& src)
 	{
-		rewriter.setSourceMgr(astContext->getSourceManager(),
-			astContext->getLangOpts());
+		m_currSrcFile = src;
 	}
 
-	virtual bool VisitFunctionDecl(FunctionDecl *func) {
-		numFunctions++;
-		string funcName = func->getNameInfo().getName().getAsString();
-		if (funcName == "do_math") {
-			rewriter.ReplaceText(func->getLocation(), funcName.length(), "add5");
-			errs() << "** Rewrote function def: " << funcName << "\n";
+	virtual void InstanceFound(const NS_CODE_DIG::Instance& ins, std::string& id)
+	{
+		errs() << " \n[CCDVistorContext::InstanceFound] IsDefinition:" << ins._isDefinition
+			<< " TokenType:" << ins._tkType
+			<< " MethodType:" << ins._methodType
+			<< " Src:" << ins._srcInfo._src
+			<< " Line:" << ins._srcInfo._line
+			<<"  Stream:"<< ins._srcInfo._stream
+			<< " Type:" << ins._type
+			<< " Name:" << ins._name << "\n";
+
+		if (ins._tkType == NS_CODE_DIG::TokenType_Method)
+		{
+			++m_numFunctions; //find func.
 		}
-		return true;
-	}
 
-	virtual bool VisitStmt(Stmt *st) {
-		if (ReturnStmt *ret = dyn_cast<ReturnStmt, Stmt>(st)) {
-			rewriter.ReplaceText(ret->getRetValue()->getLocStart(), 6, "val");
-			errs() << "** Rewrote ReturnStmt\n";
-		}
-		if (CallExpr *call = dyn_cast<CallExpr, Stmt>(st)) {
-			rewriter.ReplaceText(call->getLocStart(), 7, "add5");
-			errs() << "** Rewrote function call\n";
-		}
-		return true;
-	}
+		//we'd generate id and return back.
+	};
 
-	// this replaces the VisitStmt function above
-	/*virtual bool VisitReturnStmt(ReturnStmt *ret) {
-		rewriter.ReplaceText(ret->getLocStart(), 6, "val");
-		errs() << "** Rewrote ReturnStmt\n";
-		return true;
-	}
-	virtual bool VisitCallExpr(CallExpr *call) {
-		rewriter.ReplaceText(call->getLocStart(), 7, "add5");
-		errs() << "** Rewrote function call\n";
-		return true;
-	}*/
-};
+	virtual void OpFound(const NS_CODE_DIG::AccessOp& op, const std::string& caller, const std::string& callee)
+	{
+		errs() << "\n[CCDVistorContext::OpFound] Access type:" << op._accessType
+			<<" Caller:"<<caller
+			<<" Callee:" <<callee
+			<< " Src:" << op._srcInfo._src
+			<< " Line:" << op._srcInfo._line
+			<< "  Stream:" << op._srcInfo._stream
+			<< "\n";
+	};
 
-class ExampleASTConsumer : public ASTConsumer {
+public:
+	CCDVistorContext() :m_numFunctions(0) {}
+	~CCDVistorContext() {}
+
+	int GetFuncCount() { return m_numFunctions; }
+
 private:
-	ExampleVisitor *visitor; // doesn't have to be private
+	int m_numFunctions;
+	std::string m_currSrcFile;
+};
 
+CCDVistorContext g_vistorCtx;
+NS_CODE_DIG_AST::CASTHelper g_vistorHelper;
+
+class CDFrontendAction : public ASTFrontendAction {
 public:
-	// override the constructor in order to pass CI
-	explicit ExampleASTConsumer(CompilerInstance *CI)
-		: visitor(new ExampleVisitor(CI)) // initialize the visitor
-	{ }
-
-	// override this to call our ExampleVisitor on each top-level Decl
-	/*virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
-		// a DeclGroupRef may have multiple Decls, so we iterate through each one
-		for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; i++) {
-			Decl *D = *i;
-			visitor->TraverseDecl(D); // recursively visit each AST node in Decl "D"
-		}
-		return true;
-	}*/
-
-	// this replaces "HandleTopLevelDecl"
-	// override this to call our ExampleVisitor on the entire source file
-	virtual void HandleTranslationUnit(ASTContext &Context) {
-		/* we can use ASTContext to get the TranslationUnitDecl, which is
-		a single Decl that collectively represents the entire source file */
-		visitor->TraverseDecl(Context.getTranslationUnitDecl());
+	virtual std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) 
+	{
+		g_vistorCtx.SetCurrSrcFile(file.str());
+		return std::unique_ptr<ASTConsumer>(new CDASTConsumer(&CI, &g_vistorCtx, &g_vistorHelper)); // pass CI pointer to ASTConsumer
 	}
 };
 
-class ExampleFrontendAction : public ASTFrontendAction {
-public:
-	virtual std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) {
-		return std::unique_ptr<ASTConsumer>(new ExampleASTConsumer(&CI)); // pass CI pointer to ASTConsumer
-	}
-};
+NS_CODE_DIG_AST_END
 
-int main(int argc, const char **argv) {
+int main(int argc, const char **argv)
+{
 	CommonOptionsParser OptionsParser(argc, argv, MyToolCategory);
 	ClangTool Tool(OptionsParser.getCompilations(),
 		OptionsParser.getSourcePathList());
 
-	int result = Tool.run(newFrontendActionFactory<ExampleFrontendAction>().get());
+	int result = Tool.run(newFrontendActionFactory<NS_CODE_DIG_AST::CDFrontendAction>().get());
 
-	errs() << "\nFound " << numFunctions << " functions.\n\n";
-	// print out the rewritten source code ("rewriter" is a global var.)
-	rewriter.getEditBuffer(rewriter.getSourceMgr().getMainFileID()).write(errs());
+	errs() << "\nFound " << NS_CODE_DIG_AST::g_vistorCtx.GetFuncCount()<< " functions.\n\n";
+
 	return result;
 }

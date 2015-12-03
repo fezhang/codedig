@@ -155,10 +155,21 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ASTConsumer.h" />
+    <ClInclude Include="ASTHelper.h" />
+    <ClInclude Include="ASTVisitor.h" />
+    <ClInclude Include="CodeDigBase.h" />
+    <ClInclude Include="CodeDigData.h" />
+    <ClInclude Include="CodeDigListener.h" />
+    <ClInclude Include="CodeDigType.h" />
+    <ClInclude Include="LLVMDepends.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ASTConsumer.cpp" />
+    <ClCompile Include="ASTHelper.cpp" />
+    <ClCompile Include="ASTVisitor.cpp" />
     <ClCompile Include="cscan.cpp" />
     <ClCompile Include="stdafx.cpp" />
   </ItemGroup>
